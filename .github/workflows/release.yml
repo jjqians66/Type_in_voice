@@ -1,0 +1,68 @@
+name: Build release installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build universal DMG and ZIP
+        run: ./script/package_macos.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macOS
+          path: dist/TypeInVoice-macOS-universal.*
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+      - name: Publish self-contained Windows app
+        shell: pwsh
+        run: dotnet publish windows/TypeInVoice.Windows/TypeInVoice.Windows.csproj --configuration Release --runtime win-x64 --self-contained true
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+      - name: Build Windows installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\installer\TypeInVoice.iss'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Windows
+          path: dist/TypeInVoice-Windows-x64-Setup.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: release-files
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd release-files
+          sha256sum * > SHA256SUMS.txt
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --generate-notes --title "Type in Voice $GITHUB_REF_NAME"
+          fi
+          gh release upload "$GITHUB_REF_NAME" * --clobber

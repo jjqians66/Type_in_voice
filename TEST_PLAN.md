@@ -1,6 +1,6 @@
-# WhisperType Test Plan
+# Type in Voice Test Plan
 
-这个测试计划针对当前的 macOS 菜单栏版 WhisperType。它把真正可自动化的检查、需要人工授权的系统权限检查、以及 Playwright 的适用边界分开，避免把浏览器 E2E 工具误用到原生菜单栏 App 上。
+这个测试计划覆盖 macOS 菜单栏版和 Windows 托盘版 Type in Voice。它把真正可自动化的检查、需要人工授权的系统权限检查、以及 Playwright 的适用边界分开，避免把浏览器 E2E 工具误用到原生桌面 App 上。
 
 ## 1. Build and Launch Smoke Test
 
@@ -10,15 +10,15 @@
 
 ```sh
 ./script/build_and_run.sh --verify
-pgrep -x WhisperType | wc -l
+pgrep -x TypeInVoice | wc -l
 ```
 
 通过标准：
 
 - `xcodebuild` 成功。
-- `build/DerivedData/Build/Products/Debug/WhisperType.app` 存在。
-- `WhisperType` 进程正在运行。
-- `pgrep -x WhisperType | wc -l` 输出 `1`。
+- 脚本使用的 Derived Data 目录中存在 `Build/Products/Debug/TypeInVoice.app`（默认在系统临时目录，可用 `TYPE_IN_VOICE_DERIVED_DATA` 覆盖）。
+- `TypeInVoice` 进程正在运行。
+- `pgrep -x TypeInVoice | wc -l` 输出 `1`。
 
 必要性：
 
@@ -37,22 +37,22 @@ pgrep -x WhisperType | wc -l
 
 手动步骤：
 
-1. 打开菜单栏中的 WhisperType。
+1. 打开菜单栏中的 Type in Voice。
 2. 按 `Option+S` 打开设置。
 3. 开启 `Launch at Login`。
-4. 在系统设置里授予 `~/Applications/WhisperType.app` 麦克风和辅助功能权限。
+4. 在系统设置里授予 `/Applications/TypeInVoice.app` 麦克风和辅助功能权限。
 5. 退出登录再登录，或重启 Mac，确认菜单栏图标自动出现。
 
 通过标准：
 
-- `~/Applications/WhisperType.app` 存在并能启动。
+- `/Applications/TypeInVoice.app` 存在并能启动。
 - 登录后菜单栏图标出现。
 - `Option+D` 可以开始录音，再按一次可以停止。
 
 必要性：
 
 - Xcode 构建出来的 App 位于 DerivedData，路径会变化；macOS 的麦克风/辅助功能权限绑定到 App 路径和签名状态，路径变化会造成“昨天能用、今天又不行”。
-- 安装到 `~/Applications` 后，权限和登录项都指向稳定位置。
+- 安装到 `/Applications` 后，权限和登录项都指向稳定位置。
 
 ## 3. Hotkey State Machine Test
 
@@ -99,7 +99,7 @@ osascript -e 'tell application "System Events" to key code 2 using option down'
 通过标准：
 
 - TextEdit 中只出现一次最终结果。
-- 不应该粘贴到 WhisperType 设置窗口、菜单栏弹窗、或其他后来获得焦点的 App。
+- 不应该粘贴到 Type in Voice 设置窗口、菜单栏弹窗、或其他后来获得焦点的 App。
 - 如果没有辅助功能权限，结果应保留在剪贴板，并显示需要授权的错误状态。
 
 建议增加的自动化脚本：
@@ -167,13 +167,51 @@ Playwright 不适合：
 - 使用错误工具会产生假的 E2E 覆盖：测试绿了，但真实菜单栏、权限、全局快捷键、粘贴链路仍可能坏。
 - 明确工具边界后，测试结果才可信。
 
-## 7. Regression Checklist
+## 7. Windows Build and Install Test
+
+目标：确认 Windows 客户端可编译、最终安装包不要求用户预装 .NET，并且卸载路径完整。
+
+CI / Windows 命令：
+
+```powershell
+dotnet build windows/TypeInVoice.Windows/TypeInVoice.Windows.csproj --configuration Release
+dotnet publish windows/TypeInVoice.Windows/TypeInVoice.Windows.csproj --configuration Release --runtime win-x64 --self-contained true
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\installer\TypeInVoice.iss
+```
+
+手动步骤：
+
+1. 在一台没有安装 .NET SDK/runtime 的 64-bit Windows 10/11 机器运行 `TypeInVoice-Windows-x64-Setup.exe`。
+2. SmartScreen 出现时点击 **More info → Run anyway**。
+3. 确认首次打开自动显示设置窗口，保存 API key 后退出并重开仍能读取。
+4. 在 Notepad 中按 `Ctrl+Alt+D` 录音，再按一次停止，确认只粘贴一次。
+5. 转写中再按一次快捷键，确认可取消。
+6. 让目标窗口在转写完成前退出，确认结果只留在剪贴板，没有粘贴到其他窗口。
+7. 从 Windows Settings 的 Installed apps 卸载，确认程序和快捷方式被移除。
+
+通过标准：
+
+- 安装器无需管理员权限，普通用户可安装。
+- 没有预装 .NET 的机器可以启动。
+- API key 文件无法作为明文读取（使用当前 Windows 账户 DPAPI 加密）。
+- 系统快捷键、托盘菜单、状态浮层、取消和剪贴板 fallback 均符合预期。
+
+## 8. Release Artifact Test
+
+在 GitHub Actions 手动运行 **Build release installers**，下载两个 workflow artifacts 并检查：
+
+- macOS artifact 包含 universal DMG 和 ZIP；`lipo -info TypeInVoice.app/Contents/MacOS/TypeInVoice` 同时显示 `arm64`、`x86_64`。
+- Windows artifact 包含 `TypeInVoice-Windows-x64-Setup.exe`。
+- 两个安装包的名字与 README 下载表完全一致。
+- 从 Releases 页面下载的产物能按 README 的一次性 override 指引启动。
+
+## 9. Regression Checklist
 
 每次改动后至少跑：
 
 ```sh
 ./script/build_and_run.sh --verify
-pgrep -x WhisperType | wc -l
+pgrep -x TypeInVoice | wc -l
 ```
 
 然后手动确认：
@@ -184,4 +222,5 @@ pgrep -x WhisperType | wc -l
 - Processing 时再次 `Option+D` 可以取消。
 - 最终文字只粘贴一次。
 - 退出并重开后仍只有一个实例。
-
+- Windows 上 `Ctrl+Alt+S` 打开设置，`Ctrl+Alt+D` 完成录音/停止/取消。
+- Windows 安装机上没有 .NET runtime 也能启动。

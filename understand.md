@@ -1,134 +1,79 @@
-# WhisperType v2: 架构与实现原理解析
+# Type in Voice：架构与实现说明
 
-本文档记录了 WhisperType 从传统的“录完再转录”模式，向基于 OpenAI Realtime API 的“流式边说边转录”模式（ChatGPT 风格交互）升级的全过程。
+这份文档记录 Type in Voice 当前真实运行的架构。它提供原生 macOS 菜单栏版和 Windows 托盘版：用户在任意输入框里按下快捷键，说完后再次按下，应用把录音转成文字并安全地粘贴回录音开始时的目标窗口。
 
----
+## 1. 产品目标
 
-## 1. 整体需求与目标
+- 用一个全局快捷键完成开始、停止和取消，不打断当前工作流。
+- 对中英文混说、技术术语和原文语气保持友好；默认不翻译、不回答语音里的问题。
+- 让录音、转写、粘贴三个阶段都有明确反馈。
+- 没有辅助功能权限时不丢文字：结果会保留在系统剪贴板中，用户可以手动 `⌘V`。
+- 把 API key 放在 macOS Keychain 或 Windows 当前账户的 DPAPI 加密存储中，而不是源代码或明文配置文件里。
 
-**核心目标**：在 macOS 上构建一个极速、丝滑的中英双语原生语音输入工具。
+## 2. 数据流
 
-- **交互体验**：全局快捷键（`⌥D`）一键唤醒，伴随类似 ChatGPT App 的全局悬浮动效波形窗口。
-- **低延迟处理**：本地提取 PCM 后，直通 OpenAI Whisper API，高精度极速转录。
-- **原汁原味**：支持中英文混合输入，**绝对不翻译**，保留所有的专业术语（如 Xcode, SwiftUI），并自动加上正确的标点符号。
-- **系统原生**：零外部庞大依赖（如 Python 进程），完全使用 Swift 构建，资源占用极低。
-- **防止超限**：设定单次最高 5 分钟（300s）的安全硬限制，保障转录请求绝对不会由于文件过大而失败。
-
----
-
-## 2. 系统设计与技术选型
-
-为了实现上述目标，我们全面采用最稳定高精度的架构：
-
-- **核心通信**：采用 `URLSession` 直连 **OpenAI Whisper API** (`/v1/audio/transcriptions`)。
-- **音频要求**：将 AVAudioEngine 的音频在本地快速处理为 Whisper 兼容的 WAV 格式。
-- **状态管理**：使用 SwiftUI 的 `@StateObject (AppState)` 构建状态机，管理 `Idle` -> `Recording` -> `Processing` 的严格状态流转。包含 5 分钟倒计时保护。
-- **UI 呈现**：使用 AppKit 的 `NSPanel (LSUIElement)` 创建一个永远不会抢夺用户当前输入焦点的透明悬浮窗，用于渲染实时波形和倒计时。
-
----
-
-## 3. 核心模块开发与测试
-
-项目被拆分为四个核心模块进行独立开发与验证：
-
-### A. 录音与音频处理 (`AudioRecorder.swift`)
-- **音频采集**：利用 `Accelerate` 框架对麦克风音频进行 FFT（快速傅里叶变换），提取 7 个频段的能量值，驱动 UI 的波形动画。
-- **格式封装**：结束录音后，在本地将 PCM 音频实时压制拼接为标准的 WAV 头部格式，以符合 OpenAI 的上传标准。
-
-### B. 悬浮窗动效交互 (`WaveformOverlay.swift` & `OverlayWindowController.swift`)
-- 使用 `AngularGradient` 配合 `@State` 动画实现彩色光环的无限旋转。
-- 通过绑定 `AppState` 中的频段数组，让波形柱的高度随说话声音实时跳动。
-- 附带一个实时更新的时间标签，如 `Recording... 4:30 / 5:00`，在快超时前自动变红并加入警告图标。
-
-### C. 网络请求与后处理 (`TranscriptionService.swift` & `TextPostProcessor.swift`)
-- **Whisper 调用**：采用 HTTP Multipart 表单形式，携带 API Key、WAV 文件以及可选的 Language Hint 上传至 OpenAI。
-- **可选后处理**：提供一个使用 GPT-4o-mini 的深度润色开关，用于去除严重的口语化重复并优化排版（不改变原意）。
-
----
-
-## 4. 系统集成与工作流
-
-整合所有模块，确保从快捷键按下到文字上屏的无缝协作：
-
-1. `HotKeyManager` 全局拦截 `Option + D`。
-2. 触发 `AppState` 开始录音和网络推流。
-3. 录音结束，等待文本流完毕。
-4. 使用 macOS Accessibility 权限，通过底层 API（`CGEvent` / 剪贴板）将最终文本注入到用户当前光标所在的任何第三方应用中。
-
----
-
-## 5. API 运行费用评估 (Cost Analysis)
-
-流式体验的代价是相对较高的 API 成本，本项目主要涉及以下两项消耗：
-
-1. **OpenAI Whisper API (`whisper-1`)**
-   - 官方定价：**$0.006 / 分钟**。
-   - 极其低廉的成本，每使用 1 小时语音输入仅需 $0.36（约合人民币 2.5 元）。
-   - 由于增加了硬性 5 分钟安全限制，即使不小心忘记关麦克风，一次最坏消耗也仅为 3 美分。
-
-2. **GPT-4o-mini (可选的文本深度润色)**
-   - 如果开启该功能，会在转录完成后消耗少量的文本 Token。
-   - 成本极低，平均每转录一次约 **$0.0001**。
-
----
-
-## 6. 系统交互流程图
-
-以下是 WhisperType v2 核心运行逻辑的详细流程图：
-
-```mermaid
-graph TD
-    A[用户按下 ⌥D] --> B{检查 API Key}
-    B -- 无 Key --> C[在菜单栏报错并中止]
-    B -- 有 Key --> D[App 状态: Connecting]
-    
-    D --> E[建立 WebSocket 连接至 OpenAI]
-    E --> F[App 状态: Recording]
-    
-    F --> G[AudioRecorder 采集麦克风音频]
-    
-    G --> H[转换为 24kHz PCM16]
-    H --> I[WebSocket 分块发送至 Realtime API]
-    
-    F --> J[唤起 WaveformOverlay 悬浮动效窗]
-    G --> K[提取 FFT 频段更新浮窗跳动波形]
-    
-    L[用户再次按下 ⌥D] --> M[App 状态: Processing]
-    M --> N[发送 commit 指令结束录音]
-    
-    N --> O[接收 response.text.delta 流式事件]
-    O --> P[在悬浮窗上实时滚动显示文字]
-    
-    P --> Q{是否在设置中开启 LLM 润色?}
-    Q -- 是 --> R[调用 GPT-4o-mini 优化标点和行文结构]
-    Q -- 否 --> S[直接使用流式转录出的原始文本]
-    
-    R --> S
-    S --> T[利用系统剪贴板与 ⌘V 将文本输入到光标处]
-    T --> U[延迟 0.5s 后隐藏浮窗, 状态恢复 Idle]
+```text
+⌥D
+  → 捕获当前前台 App 的 PID
+  → AVAudioEngine 录音
+  → 转成 24 kHz / 单声道 / PCM16 WAV
+  → OpenAI transcription endpoint
+  → 可选 GPT-4o-mini 标点与可读性处理
+  → 写入剪贴板，并向原目标 PID 发送一次 ⌘V
 ```
 
----
+当前实现是“录完再转写”的 REST 流程，不是 Realtime/WebSocket 流式转写。悬浮窗的波形是本地麦克风电平和 FFT 频段的可视化，不代表网络端已经返回了逐字结果。
 
-## 7. 踩坑记录与核心技术攻坚 (Debug Lessons)
+Windows 版使用对应流程：`Ctrl+Alt+D → NAudio WaveInEvent → 24 kHz 单声道 PCM16 WAV → OpenAI → Windows Clipboard + SendInput(Ctrl+V)`。Windows 版的浮层目前显示阶段状态，不绘制 FFT 波形。
 
-在实际开发与调试过程中，我们遇到并解决了一系列深度技术难题：
+## 3. 模块职责
 
-### 7.1 取消流式，回归纯听写
-最初我们尝试了 OpenAI Realtime API (`gpt-4o-realtime-preview`) 以获得类似 ChatGPT App 的流式打字效果。但在深度使用中发现，原生的多模态 LLM 极具**“幻觉与自作聪明的润色倾向”**。尽管加入了强硬的 `[TRANSCRIPT_START]` 提示词防御，模型依然偶尔会擅自修改用户的句型（例如把“几周之内”改写为“只有这样”）。
-对于严肃的输入工具而言，“忠实于原话”远比“流式动画”重要。因此我们痛定思痛，**彻底移除了 Realtime 接口**，将底层管线全部重新对齐回纯净、绝对忠实的 `whisper-1` 模型。
+### `AppState.swift`
 
-### 7.2 5分钟安全限时机制
-OpenAI Whisper REST 接口拥有 25MB 的上传上限（在 24kHz 音频下约折合 8.5 分钟）。为了防止用户忘关麦克风导致大文件上传失败，我们在 `AppState.swift` 的心跳 Timer 中加入了硬性熔断限制：**到达 300 秒（5 分钟）强制停止并转录**，并在浮窗上加入倒计时警告。
+集中管理 `idle → connecting → recording → processing → idle` 状态机、快捷键行为、录音计时器、取消操作、错误状态和最终粘贴流程。单次录音最多五分钟，到时自动停止并提交转写。
 
-### 7.2 macOS 辅助功能权限的“静默拦截”
-为了实现全自动的 `⌘V` 粘贴，App 需要调用底层的 `CGEvent` API 模拟按键。然而在 Xcode 调试环境下，每一次 `⌘R` 重新编译都会改变二进制签名，导致 macOS **在没有任何弹窗提示的情况下默默没收权限**，造成粘贴无响应。
-**解决方案**：在 App 启动的第一秒（`AppState.init`），强制调用底层的 C API `AXIsProcessTrustedWithOptions` 并开启弹窗选项。这迫使系统必须显式向用户弹出权限请求框，彻底杜绝了静默拦截。
+### `AudioRecorder.swift`
 
-### 7.3 LSUIElement 与焦点抢夺
-当 WhisperType 被配置为常规应用（带有 Dock 栏图标）时，操作它会**导致当前输入框丢失焦点**。这会导致最终生成的文字被粘贴给了 WhisperType 自己。
-**解决方案**：将 App 严格设定为 `LSUIElement = true`（纯后台/菜单栏应用）。并且移除了剪贴板的“0.3秒用完即焚”逻辑，确保文字永久保留在剪贴板中，即便是遇到权限拦截，用户也能手动按下 `⌘V` 挽救转录结果。
+通过 `AVAudioEngine` 采集麦克风，将系统输入格式转换为 24 kHz 单声道 PCM16；同时计算 RMS 电平和七个 FFT 频段，驱动悬浮窗动画。录音数据由锁保护，避免音频回调和主线程读取产生竞态。
 
-### 7.4 “刘海屏”吞没图标与 Settings 逃逸
-在 MacBook 刘海屏上，如果右上角后台应用过多，WhisperType 的系统菜单栏图标会被刘海物理隐藏，导致用户无法进入设置界面。
-**解决方案**：我们在 `HotKeyManager` 中加入了一个专门的全局备用快捷键（`Option + S`）。同时绕过了 SwiftUI 在无菜单栏应用中调用 `openSettings()` 时常失灵的 Bug，手写了原生的 `SettingsWindowController` 来强行拉起设置面板。
+### `TranscriptionService.swift`
+
+使用 `URLSession` 发送 multipart WAV 请求到 OpenAI transcription endpoint。改名后使用 `com.typeinvoice.app` 的 Keychain 服务；首次读取时会从旧的 `com.whispertype.app` 服务迁移已有 key，升级不会要求用户重新配置。
+
+### `TextInserter.swift`
+
+先把结果放入系统剪贴板，再在 Accessibility 权限允许时向录音开始时保存的目标 PID 发送一次 `⌘V`。如果目标 App 已退出，Type in Voice 不会改粘到一个不确定的前台 App，而是把结果留在剪贴板。
+
+### `WaveformOverlay.swift` / `OverlayWindowController.swift`
+
+使用不会激活窗口的 `NSPanel` 显示录音状态、计时、波形和转写中提示。用户可以在 Settings 里关闭 overlay；关闭后录音流程仍然正常工作。
+
+### `windows/TypeInVoice.Windows/`
+
+WPF 托盘客户端。`DictationController` 管理 idle / recording / processing 状态；`AudioRecorderService` 使用 NAudio 录制 WAV；`TranscriptionService` 调用 OpenAI；`NativeMethods` 注册系统快捷键并只向录音开始时捕获的安全目标窗口发送一次 `Ctrl+V`。发布时会生成包含 .NET runtime 的单文件程序，最终由 Inno Setup 打成普通 Windows 安装包。
+
+## 4. 关键交互决策
+
+- `⌥D` 在录音中表示停止；在连接或转写中表示取消。这样网络慢时用户仍有明确的退出路径。
+- 快捷键有 0.45 秒防抖，避免 key repeat 或快速重复触发造成双录音、双粘贴。
+- 菜单栏菜单里的录音按钮与快捷键共享同一状态机，转写中也可以直接点“Cancel transcription”。
+- 目标 App 只在录音开始时捕获，避免设置窗口或菜单栏 UI 改变焦点后发生误粘贴。
+- 关闭 overlay 只是关闭视觉反馈，不会关闭录音、转写或自动粘贴。
+
+## 5. 权限与隐私边界
+
+- 麦克风权限用于录音。
+- macOS Accessibility 权限只用于模拟 `⌘V`，没有该权限时仍然可以拿到剪贴板结果。Windows 通过系统窗口句柄与 `SendInput` 恢复目标并发送 `Ctrl+V`；目标不可确认时同样只保留剪贴板。
+- 录音停止后，音频会发送到 OpenAI 做转写；开启可读性处理后，转写文本还会发送到 OpenAI 的 chat completions endpoint。
+- 应用本身不维护本地数据库或 analytics 服务。剪贴板由 macOS 管理，用户应避免把敏感内容发送到未审核的第三方服务。
+
+## 6. 本地验证
+
+```bash
+xcodegen generate
+./script/build_and_run.sh --verify
+```
+
+需要真实系统权限的回归流程见 [TEST_PLAN.md](TEST_PLAN.md)，尤其包括 TextEdit 单次粘贴、转写中取消、目标 App 退出、麦克风拒绝和无 Accessibility 权限等情况。
+
+发布流程见 [DISTRIBUTION.md](DISTRIBUTION.md)。GitHub tag 会同时生成 macOS universal DMG/ZIP 和 Windows x64 安装包；当前产物不签名，首次启动按 README 的系统 override 指引处理。

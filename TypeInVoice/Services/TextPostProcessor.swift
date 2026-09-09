@@ -4,7 +4,7 @@ import os
 /// Optional LLM post-processing for transcribed text.
 /// Uses GPT-4o-mini for lightweight readability enhancement.
 class TextPostProcessor {
-    private let logger = Logger(subsystem: "com.whispertype.app", category: "TextPostProcessor")
+    private let logger = Logger(subsystem: "com.typeinvoice.app", category: "TextPostProcessor")
 
     /// Enhance text readability using GPT-4o-mini.
     /// Cost: ~$0.001 per call.

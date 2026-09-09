@@ -1,6 +1,6 @@
-name: WhisperType
+name: TypeInVoice
 options:
-  bundleIdPrefix: com.whispertype
+  bundleIdPrefix: com.typeinvoice
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "15.0"
@@ -14,19 +14,19 @@ packages:
     from: "4.2.2"
 
 targets:
-  WhisperType:
+  TypeInVoice:
     type: application
     platform: macOS
     sources:
-      - WhisperType
+      - TypeInVoice
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.whispertype.app
-        MARKETING_VERSION: "1.0.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.typeinvoice.app
+        MARKETING_VERSION: "2.1.0"
         CURRENT_PROJECT_VERSION: 1
-        INFOPLIST_FILE: WhisperType/Info.plist
+        INFOPLIST_FILE: TypeInVoice/Info.plist
         GENERATE_INFOPLIST: false
-        CODE_SIGN_ENTITLEMENTS: WhisperType/WhisperType.entitlements
+        CODE_SIGN_ENTITLEMENTS: TypeInVoice/TypeInVoice.entitlements
         SWIFT_VERSION: "5.9"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_APP_SANDBOX: false
@@ -36,4 +36,4 @@ targets:
       - package: HotKey
       - package: KeychainAccess
     entitlements:
-      path: WhisperType/WhisperType.entitlements
+      path: TypeInVoice/TypeInVoice.entitlements

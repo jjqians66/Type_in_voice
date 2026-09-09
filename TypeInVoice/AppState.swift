@@ -30,7 +30,6 @@ class AppState: ObservableObject {
 
     @AppStorage("language") var language: String = "auto"
     @AppStorage("showOverlay") var showOverlay: Bool = true
-    @AppStorage("launchAtLogin") var launchAtLogin: Bool = false
     @AppStorage("enablePostProcessing") var enablePostProcessing: Bool = false
 
     // MARK: - Services
@@ -117,16 +116,16 @@ class AppState: ObservableObject {
     func toggleRecording() {
         let now = Date()
         guard now.timeIntervalSince(lastToggleAt) >= minimumToggleInterval else {
-            print("WhisperType: Ignoring repeated hotkey")
+            print("Type in Voice: ignoring repeated hotkey")
             return
         }
         lastToggleAt = now
 
         switch recordingState {
         case .idle:
-            startWhisperRecording()
+            startRecordingFlow()
         case .recording:
-            stopWhisperRecording()
+            stopRecordingFlow()
         case .connecting:
             cancelCurrentOperation(reason: "Cancelled")
         case .processing:
@@ -134,13 +133,13 @@ class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Whisper REST Flow
+    // MARK: - Transcription Flow
 
-    private func startWhisperRecording() {
-        print("WhisperType: startWhisperRecording()")
+    private func startRecordingFlow() {
+        print("Type in Voice: starting recording flow")
         guard let apiKey = transcriptionService.openAIAPIKey, !apiKey.isEmpty else {
             errorMessage = "No OpenAI API key. Press ⌥S to open Settings."
-            print("WhisperType: No API key")
+            print("Type in Voice: no API key")
             return
         }
 
@@ -153,7 +152,7 @@ class AppState: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     if granted {
-                        self.startWhisperRecording()
+                        self.startRecordingFlow()
                     } else {
                         self.errorMessage = "Microphone access is required for dictation."
                         self.recordingState = .idle
@@ -176,16 +175,16 @@ class AppState: ObservableObject {
         do {
             try audioRecorder.startRecording()
             startTimer()
-            print("WhisperType: Recording started successfully")
+            print("Type in Voice: recording started successfully")
         } catch {
             errorMessage = "Failed to start mic: \(error.localizedDescription)"
-            print("WhisperType: Mic start failed: \(error)")
+            print("Type in Voice: microphone start failed: \(error)")
             recordingState = .idle
         }
     }
 
-    private func stopWhisperRecording() {
-        print("WhisperType: stopWhisperRecording()")
+    private func stopRecordingFlow() {
+        print("Type in Voice: stopping recording")
         guard recordingState == .recording else { return }
         
         audioRecorder.stopRecording()
@@ -195,34 +194,35 @@ class AppState: ObservableObject {
         
         guard let pcmData = try? audioRecorder.getAudioData() else {
             errorMessage = "Failed to process audio"
-            print("WhisperType: Failed to get audio data from recorder")
+            print("Type in Voice: failed to get audio data from recorder")
+            streamingText = ""
             recordingState = .idle
             return
         }
         
-        print("WhisperType: Got \(pcmData.count) bytes of audio data")
+        print("Type in Voice: got \(pcmData.count) bytes of audio data")
         
         // Convert to WAV for Whisper API
         let wavData = createWAVHeader(data: pcmData, sampleRate: 24000, channels: 1) + pcmData
         let targetPID = targetProcessID
-        print("WhisperType: WAV data size: \(wavData.count) bytes")
+        print("Type in Voice: WAV data size: \(wavData.count) bytes")
         
         transcriptionTask?.cancel()
         transcriptionTask = Task { [weak self, wavData, targetPID] in
             guard let self else { return }
             do {
                 let languageToPass = await MainActor.run { (self.language == "auto") ? nil : self.language }
-                print("WhisperType: Calling Whisper API with language: \(languageToPass ?? "auto")")
+                print("Type in Voice: calling transcription API with language: \(languageToPass ?? "auto")")
                 let text = try await self.transcriptionService.transcribeWithWhisperAPI(audioData: wavData, language: languageToPass)
                 guard !Task.isCancelled else { return }
                 
-                print("WhisperType: Whisper API returned \(text.count) characters: \(text)")
+                print("Type in Voice: transcription API returned \(text.count) characters")
                 await self.handleTranscriptionComplete(text, targetProcessID: targetPID)
             } catch {
                 guard !Task.isCancelled else { return }
-                print("WhisperType: Whisper API error: \(error)")
+                print("Type in Voice: transcription API error: \(error)")
                 await MainActor.run {
-                    self.errorMessage = "Whisper API failed: \(error.localizedDescription)"
+                    self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                     self.recordingState = .idle
                     self.streamingText = ""
                     self.transcriptionTask = nil
@@ -261,13 +261,7 @@ class AppState: ObservableObject {
     }
 
     private func handleTranscriptionComplete(_ text: String, targetProcessID: pid_t?) async {
-        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Remove the anti-hallucination marker prefix if present
-        let marker = "[TRANSCRIPT_START]"
-        if trimmed.hasPrefix(marker) {
-            trimmed = String(trimmed.dropFirst(marker.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
             errorMessage = "No speech detected"
@@ -331,7 +325,7 @@ class AppState: ObservableObject {
                 
                 // Hard limit at 5 minutes (300 seconds)
                 if self.recordingDuration >= 300 {
-                    self.stopWhisperRecording()
+                    self.stopRecordingFlow()
                 }
             }
         }
@@ -370,7 +364,7 @@ class AppState: ObservableObject {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let currentPID = ProcessInfo.processInfo.processIdentifier
         guard app.processIdentifier != currentPID else { return nil }
-        print("WhisperType: Target app = \(app.localizedName ?? "unknown") pid=\(app.processIdentifier)")
+        print("Type in Voice: target app = \(app.localizedName ?? "unknown") pid=\(app.processIdentifier)")
         return app.processIdentifier
     }
 }
@@ -398,7 +392,7 @@ class SettingsWindowController {
         window.center()
         window.setFrameAutosaveName("Settings")
         window.isReleasedWhenClosed = false
-        window.title = "WhisperType Settings"
+        window.title = "Type in Voice Settings"
         window.contentView = NSHostingView(rootView: SettingsView().environmentObject(appState))
 
         self.window = window

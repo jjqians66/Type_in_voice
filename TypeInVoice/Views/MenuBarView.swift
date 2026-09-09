@@ -51,7 +51,7 @@ struct MenuBarView: View {
                 .symbolEffect(.pulse, isActive: appState.recordingState == .recording)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("WhisperType")
+                Text("Type in Voice")
                     .font(.headline)
 
                 Text(statusText)
@@ -84,7 +84,7 @@ struct MenuBarView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(appState.recordingState == .processing || appState.recordingState == .connecting)
+        .disabled(false)
     }
 
     private var languageSection: some View {
@@ -161,7 +161,7 @@ struct MenuBarView: View {
                 .buttonStyle(.plain)
             }
 
-            Button("Quit WhisperType") {
+            Button("Quit Type in Voice") {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(.plain)
@@ -173,9 +173,9 @@ struct MenuBarView: View {
     private var statusText: String {
         switch appState.recordingState {
         case .idle: return "Ready — Press ⌥D to dictate"
-        case .connecting: return "Setting up microphone…"
+        case .connecting: return "Setting up microphone… Press ⌥D to cancel"
         case .recording: return "Recording… Press ⌥D to stop"
-        case .processing: return "Transcribing…"
+        case .processing: return "Transcribing… Press ⌥D to cancel"
         }
     }
 
@@ -184,7 +184,7 @@ struct MenuBarView: View {
         case .idle: return "Start Dictation"
         case .connecting: return "Connecting…"
         case .recording: return "Stop & Transcribe"
-        case .processing: return "Transcribing…"
+        case .processing: return "Cancel transcription"
         }
     }
 }

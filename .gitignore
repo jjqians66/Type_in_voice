@@ -4,4 +4,8 @@
 xcuserdata/
 DerivedData/
 build/
+dist/
+**/bin/
+**/obj/
+.vs/
 .swiftpm/

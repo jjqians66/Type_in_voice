@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// A tiny persistent floating status dot anchored to the bottom-right of the screen.
-/// Always visible so the user knows at a glance whether WhisperType is running.
+/// Always visible so the user knows at a glance whether Type in Voice is running.
 ///
 /// Colors:
 /// - 🟢 Green = idle, ready

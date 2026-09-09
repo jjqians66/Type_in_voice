@@ -3,18 +3,40 @@ import KeychainAccess
 
 /// Manages API keys and provides OpenAI Whisper REST API transcription.
 class TranscriptionService {
-    private let keychain = Keychain(service: "com.whispertype.app")
-    private let session = URLSession.shared
+    private let keychain = Keychain(service: "com.typeinvoice.app")
+    private let legacyKeychain = Keychain(service: "com.whispertype.app")
+    /// A five-minute recording is roughly 14 MB. `timeoutIntervalForRequest` is the
+    /// idle timeout between packets; `timeoutIntervalForResource` caps the whole
+    /// transfer, so a slow uplink still gets time to finish the upload.
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        return URLSession(configuration: config)
+    }()
 
     // MARK: - API Key Management
 
     var openAIAPIKey: String? {
-        get { try? keychain.get("openai_api_key") }
+        get {
+            if let current = try? keychain.get("openai_api_key"), !current.isEmpty {
+                return current
+            }
+
+            // Keep existing installs working after the product rename.
+            if let legacy = try? legacyKeychain.get("openai_api_key"), !legacy.isEmpty {
+                try? keychain.set(legacy, key: "openai_api_key")
+                return legacy
+            }
+
+            return nil
+        }
         set {
-            if let newValue {
-                try? keychain.set(newValue, key: "openai_api_key")
-            } else {
+            let value = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if value.isEmpty {
                 try? keychain.remove("openai_api_key")
+            } else {
+                try? keychain.set(value, key: "openai_api_key")
             }
         }
     }
@@ -33,7 +55,6 @@ class TranscriptionService {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
 
         var body = Data()
 
@@ -55,9 +76,7 @@ class TranscriptionService {
         // Close boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.upload(for: request, from: body)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw TranscriptionError.networkError("Invalid response")

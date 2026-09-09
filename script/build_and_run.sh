@@ -3,14 +3,22 @@ set -euo pipefail
 
 MODE="${1:-run}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="WhisperType"
-PROJECT="$ROOT_DIR/WhisperType.xcodeproj"
-SCHEME="WhisperType"
+APP_NAME="TypeInVoice"
+PROJECT="$ROOT_DIR/TypeInVoice.xcodeproj"
+SCHEME="TypeInVoice"
 CONFIGURATION="Debug"
-DERIVED_DATA="$ROOT_DIR/build/DerivedData"
+DERIVED_DATA="${TYPE_IN_VOICE_DERIVED_DATA:-${TMPDIR:-/tmp}/TypeInVoice-DerivedData}"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/$CONFIGURATION/$APP_NAME.app"
 
 build_app() {
+  if [[ ! -d "$PROJECT" ]]; then
+    command -v xcodegen >/dev/null || {
+      echo "xcodegen is required. Install it with: brew install xcodegen" >&2
+      exit 1
+    }
+    xcodegen generate
+  fi
+
   xcodebuild \
     -project "$PROJECT" \
     -scheme "$SCHEME" \

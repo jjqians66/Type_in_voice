@@ -37,10 +37,16 @@ struct GeneralSettingsTab: View {
     var body: some View {
         Form {
             Section("Startup") {
-                Toggle("Launch at Login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        toggleLaunchAtLogin(newValue)
-                    }
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { setLaunchAtLogin($0) }
+                ))
+
+                Toggle("Show recording overlay", isOn: $appState.showOverlay)
+
+                Text("Show a small waveform HUD while Type in Voice is recording or transcribing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Keyboard Shortcut") {
@@ -107,21 +113,28 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            launchAtLogin = appState.launchAtLogin
+            launchAtLogin = Self.isRegisteredForLaunchAtLogin
         }
     }
 
-    private func toggleLaunchAtLogin(_ enabled: Bool) {
+    /// The login-item registration is owned by the system, so read it back from
+    /// `SMAppService` instead of mirroring it in state that can drift out of sync.
+    private static var isRegisteredForLaunchAtLogin: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled {
                 try SMAppService.mainApp.register()
             } else {
                 try SMAppService.mainApp.unregister()
             }
-            appState.launchAtLogin = enabled
         } catch {
-            print("Failed to toggle launch at login: \(error)")
+            appState.errorMessage = "Could not update Launch at Login: \(error.localizedDescription)"
         }
+        // Snap the toggle back to whatever the system actually reports.
+        launchAtLogin = Self.isRegisteredForLaunchAtLogin
     }
 
     private func openAccessibilitySettings() {
@@ -140,25 +153,6 @@ struct TranscriptionSettingsTab: View {
 
     var body: some View {
         Form {
-            Section("General") {
-                Toggle("Launch at Login", isOn: $appState.launchAtLogin)
-                    .onChange(of: appState.launchAtLogin) { _, newValue in
-                        do {
-                            if newValue {
-                                try SMAppService.mainApp.register()
-                            } else {
-                                try SMAppService.mainApp.unregister()
-                            }
-                        } catch {
-                            print("Failed to update Launch at Login: \\(error)")
-                        }
-                    }
-                
-                Text("Start WhisperType automatically when you turn on your Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
             Section("OpenAI API Key") {
                 HStack {
                     if showAPIKey {
@@ -191,7 +185,7 @@ struct TranscriptionSettingsTab: View {
                         .foregroundStyle(.green)
                 }
 
-                Text("Used for OpenAI Whisper API. Stored securely in macOS Keychain.")
+                Text("Used for transcription. Stored securely in your macOS Keychain.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -209,14 +203,14 @@ struct TranscriptionSettingsTab: View {
                     Text("Deutsch (German)").tag("de")
                 }
 
-                Text("Auto Detect works well for Chinese and English. Setting a specific language can improve accuracy.")
+                Text("Auto Detect works well for mixed Chinese and English. A specific language can improve accuracy when you know it in advance.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Post-Processing") {
-                Toggle("Enable LLM Enhancement", isOn: $appState.enablePostProcessing)
-                Text("After transcription, use GPT-4o-mini to improve readability and formatting.")
+                Toggle("Polish punctuation and formatting", isOn: $appState.enablePostProcessing)
+                Text("After transcription, use GPT-4o-mini to lightly improve readability. It keeps the original language and meaning.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -239,15 +233,15 @@ struct AboutTab: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.blue.gradient)
 
-            Text("WhisperType")
+            Text("Type in Voice")
                 .font(.title)
                 .fontWeight(.bold)
 
-            Text("v2.0.0")
+            Text("v2.1.0")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("High-accuracy voice dictation powered by OpenAI Whisper.\nMaximum 5 minutes per recording.")
+            Text("Fast, private-feeling voice dictation for macOS.\nSpeak anywhere, and Type in Voice puts the words where your cursor is.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -257,7 +251,7 @@ struct AboutTab: View {
                 .frame(width: 200)
 
             VStack(spacing: 4) {
-                Text("Powered by OpenAI Whisper API")
+                Text("Powered by OpenAI transcription")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Built with SwiftUI")

@@ -3,7 +3,7 @@ import Combine
 import AppKit
 
 @main
-struct WhisperTypeApp: App {
+struct TypeInVoiceApp: App {
     @StateObject private var appState = AppState()
     @State private var overlayController = OverlayWindowController()
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -19,7 +19,7 @@ struct WhisperTypeApp: App {
                 .environmentObject(appState)
         } label: {
             Label {
-                Text("WhisperType")
+                Text("Type in Voice")
             } icon: {
                 Image(systemName: appState.menuBarIcon)
             }
@@ -27,6 +27,9 @@ struct WhisperTypeApp: App {
         .menuBarExtraStyle(.window)
         .onChange(of: appState.recordingState) { _, newState in
             handleStateChange(newState)
+        }
+        .onChange(of: appState.showOverlay) { _, _ in
+            handleOverlayPreferenceChange()
         }
 
         Settings {
@@ -48,10 +51,14 @@ struct WhisperTypeApp: App {
         case .connecting, .recording, .processing:
             // Dismiss startup toast if still showing
             StartupToastController.shared.hide()
-            
-            let content = WaveformOverlay()
-                .environmentObject(appState)
-            overlayController.show(content: content)
+
+            if appState.showOverlay {
+                let content = WaveformOverlay()
+                    .environmentObject(appState)
+                overlayController.show(content: content)
+            } else {
+                overlayController.hide()
+            }
 
         case .idle:
             // Brief delay before hiding to show checkmark
@@ -64,6 +71,18 @@ struct WhisperTypeApp: App {
         let content = WaveformOverlay()
             .environmentObject(appState)
         overlayController.update(content: content)
+    }
+
+    private func handleOverlayPreferenceChange() {
+        guard appState.recordingState != .idle else { return }
+
+        if appState.showOverlay {
+            let content = WaveformOverlay()
+                .environmentObject(appState)
+            overlayController.show(content: content)
+        } else {
+            overlayController.hide()
+        }
     }
 
     private func terminateOtherRunningInstances() {
@@ -164,9 +183,12 @@ class StartupToastController {
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.5
             panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            self?.panel?.orderOut(nil)
-            self?.panel = nil
+        }, completionHandler: { [weak self, panel] in
+            panel.orderOut(nil)
+            Task { @MainActor in
+                guard let self, self.panel === panel else { return }
+                self.panel = nil
+            }
         })
     }
 }
@@ -181,7 +203,7 @@ struct StartupToastView: View {
                 .foregroundStyle(.blue.gradient)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("WhisperType is running ✓")
+                Text("Type in Voice is ready ✓")
                     .font(.system(.body, design: .rounded, weight: .semibold))
                     .foregroundStyle(.primary)
 
